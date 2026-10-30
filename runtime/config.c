@@ -92,6 +92,7 @@ static const char DEFAULT_INI[] =
     "; In menus it is a pointer: the item under it is selected, a left click confirms, a right click goes back (B).\n"
     "; In quests it turns the camera itself (MouseSensitivity sets how far). Elsewhere (towns with their fixed camera,\n"
     "; the title, cutscenes) the pointer stays free: a left click is A (talk to the one in range), a right click B.\n"
+    "; (The DirectMouseInput mod, in mods\\DirectMouseInput: without it the mouse acts as the right stick.)\n"
     "DirectMouse = On\n"
     "\n"
     "[Keyboard]\n"
@@ -702,4 +703,31 @@ void config_edit_end(void) {
     for (int i = 0; i < ed_n; i++) free(ed_line[i]);
     ed_n = 0;
     ed_open = false;
+}
+
+bool config_file_get(const char *section, const char *key, char *out, size_t size) {
+    char path[1100], want_sec[64], want_key[64], buf[512], sec[64] = "";
+    ini_path(path, sizeof path);
+    snprintf(want_sec, sizeof want_sec, "%s", section), squash(want_sec);
+    snprintf(want_key, sizeof want_key, "%s", key), squash(want_key);
+    FILE *f = fopen(path, "r");
+    bool found = false;
+    while (f && !found && fgets(buf, sizeof buf, f)) {
+        char *s = trim(buf), *eq;
+        if (*s == '[' && strchr(s, ']')) {
+            snprintf(sec, sizeof sec, "%.*s", (int)(strchr(s, ']') - s - 1), s + 1);
+            squash(sec);
+            continue;
+        }
+        if (!*s || *s == ';' || *s == '#' || strcmp(sec, want_sec) || !(eq = strchr(s, '='))) continue;
+        *eq = 0;
+        char *k = trim(s), *v = trim(eq + 1), *cmt = strpbrk(v, ";#");
+        if (cmt) *cmt = 0;
+        squash(k);
+        if (strcmp(k, want_key)) continue;
+        snprintf(out, size, "%s", trim(v));
+        found = true;
+    }
+    if (f) fclose(f);
+    return found;
 }

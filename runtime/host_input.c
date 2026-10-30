@@ -12,14 +12,15 @@
 //   (settings FaceButtons, runtime/config.c; MHGU_PAD_POSITIONAL=0|1 overrides); [Controller] / the menu move any.
 //   SDL calls other devices a gamepad too (a Steam Controller's puck, an analog keyboard's mouse interface) and the
 //   first one it sees owns the input: MHGU_PAD=<part of the name> picks yours, and the log lists every one it finds.
-// Direct mouse (settings [Mouse] DirectMouse = On, the default; runtime/hle/directmouse.c): in menus the mouse is a
-//   free pointer - the item under it is selected, left click confirms, right click = B; in quests (captured) its
-//   movement turns the game's camera itself instead of tilting the right stick; elsewhere (towns with their fixed
-//   camera, the title, cutscenes) the pointer stays free, left click = A (talk to the one in range), right click = B.
+// A plugin can take the mouse over (the DirectMouseInput mod: a free pointer in menus, the quest camera turned by the
+//   mouse itself): each frame it says what the mouse is for (plugin_mouse_mode, runtime/forge.c mhgu_mouse_*) - a
+//   free pointer whose left / right clicks are its own, or captured with its movement its own - and presses buttons
+//   through plugin_pad_press. Otherwise the mouse is the port's: mouse look (the right stick) and the bound buttons.
 // Scripted input (tests): MHGU_INPUT="frame:BUTTON:frames,..." holds BUTTON from that presented frame for that many
 //   frames. BUTTON: A B X Y L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN LSTICK RSTICK, or STICK_UP/DOWN/LEFT/RIGHT and
 //   RSTICK_UP/DOWN/LEFT/RIGHT (full tilt).
 #include <math.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -30,7 +31,6 @@
 #include "config.h"
 #include "forge.h"
 #include "hle/input.h"
-#include "hle/directmouse.h"
 #include "menu.h"
 #include "overlay.h"
 #include "rt.h"
@@ -78,6 +78,60 @@ static bool mouse_in = true;      // the pointer is over the window (menu pointe
 // (tests: the control file's "mousemove <x> <y> <ms>", a mouse moving at that many counts a second, captured or not)
 static float test_vx, test_vy;
 static uint64_t test_until;
+
+// ---- the mouse for a plugin (forge.h plugin_*): the pointer on the game's 2D canvas, the clicks, wheel and movement
+// since it last took them; what it said the mouse is for, and when (unsaid for PM_FRESH_NS: the port's again)
+#define PM_FRESH_NS 250000000ull
+static pthread_mutex_t pm_lock = PTHREAD_MUTEX_INITIALIZER;
+static PluginMouse pm;
+static int pm_mode;
+static uint64_t pm_mode_ns;
+static uint32_t pm_press, pm_press_frames;  // (buttons a plugin pressed: host_input_update holds them)
+static struct { uint32_t seq; char line[200]; } pctl[16];  // the control file's lines for the plugins, the last 16
+static uint32_t pctl_seq;
+
+static int pm_mode_now(void) {
+    pthread_mutex_lock(&pm_lock);
+    int m = plat_now_ns() - pm_mode_ns < PM_FRESH_NS ? pm_mode : MHGU_MOUSE_PORT;
+    pthread_mutex_unlock(&pm_lock);
+    return m;
+}
+
+void plugin_mouse_take(PluginMouse *out) {
+    pthread_mutex_lock(&pm_lock);
+    pm.w = (float)g_ui_size[0], pm.h = (float)g_ui_size[1];
+    *out = pm;
+    pm.dx = pm.dy = 0.0f, pm.clicks = 0, pm.wheel = 0;
+    pthread_mutex_unlock(&pm_lock);
+}
+
+void plugin_mouse_mode(int mode) {
+    pthread_mutex_lock(&pm_lock);
+    pm_mode = mode, pm_mode_ns = plat_now_ns();
+    pthread_mutex_unlock(&pm_lock);
+}
+
+void plugin_pad_press(uint32_t buttons, uint32_t frames) {
+    pthread_mutex_lock(&pm_lock);
+    pm_press |= buttons & 0xFFFFu, pm_press_frames = frames ? frames : 4;
+    pthread_mutex_unlock(&pm_lock);
+}
+
+static void plugin_control_add(const char *line) {
+    pthread_mutex_lock(&pm_lock);
+    pctl_seq++;
+    pctl[pctl_seq % 16].seq = pctl_seq;
+    snprintf(pctl[pctl_seq % 16].line, sizeof pctl[0].line, "%s", line);
+    pthread_mutex_unlock(&pm_lock);
+}
+
+uint32_t plugin_control_next(uint32_t seq, char *out, size_t size) {
+    pthread_mutex_lock(&pm_lock);
+    uint32_t s = seq < pctl_seq ? (pctl_seq - seq > 16 ? pctl_seq - 15 : seq + 1) : 0;  // (the oldest still kept)
+    if (s) snprintf(out, size, "%s", pctl[s % 16].line);
+    pthread_mutex_unlock(&pm_lock);
+    return s;
+}
 
 // ---- scripted input
 typedef struct { uint64_t start, len; uint64_t buttons; int stick, x, y; } ScriptStep;
@@ -232,14 +286,6 @@ static void control_poll(void) {
                 LOG("[find] %d hit(s)\n", hits);
                 continue;
             }
-            if (!strcmp(cmd, "gui")) { dmouse_dump(); continue; }  // gui: what of the GUIs shows (directmouse.c)
-            if (!strcmp(cmd, "fuzz")) { dmouse_fuzz(atoi(arg)); continue; }  // fuzz [n]: the menu pointer checked (directmouse.c)
-            if (!strcmp(cmd, "snap")) {  // snap x y [click]: the pointer there as the next menu opens (directmouse.c)
-                char arg3[16] = "";
-                sscanf(line, "%*s %*s %*s %15s", arg3);
-                dmouse_snap((float)atof(arg), (float)atof(arg2), !strcmp(arg3, "click"));
-                continue;
-            }
             if (!strcmp(cmd, "peek")) {  // peek <guest hex address> [words]: log guest memory (reverse engineering)
                 uint32_t a = (uint32_t)strtoul(arg, NULL, 16) & ~3u;
                 int nw = arg2[0] ? atoi(arg2) : 8;
@@ -330,8 +376,12 @@ static void control_poll(void) {
             } else {
                 unsigned long n = arg[0] ? strtoul(arg, NULL, 10) : 8, delay = strtoul(arg2, NULL, 10);
                 uint64_t at = g_present_count + 1 + delay;
-                if (!add_step(cmd, at, n ? n : 8)) LOG("[control] unknown command '%s'\n", cmd);
-                else LOG("[control] %s %lu at frame %llu\n", cmd, n ? n : 8, (unsigned long long)at);
+                if (add_step(cmd, at, n ? n : 8)) {
+                    LOG("[control] %s %lu at frame %llu\n", cmd, n ? n : 8, (unsigned long long)at);
+                } else {  // (not the port's: for the plugins - DirectMouseInput's fuzz, snap, gui)
+                    line[strcspn(line, "\r\n")] = 0;
+                    plugin_control_add(line + strspn(line, " \t"));
+                }
             }
         }
     }
@@ -371,19 +421,20 @@ static void pick_pad(void) {  // over every controller SDL sees now: MHGU_PAD pi
     SDL_free(ids);
 }
 
-// The mouse is a free pointer now, not mouse look (settings DirectMouse: anywhere but a quest's camera - a menu open,
-// a town, the title, a cutscene, a loading screen; Forge's menu and the settings menu closed).
-static bool pointer_mode(void) {
-    return g_config.direct_mouse && (dmouse_menu_open() || dmouse_in_town() || !dmouse_camera_active()) &&
-           !overlay_menu_open() && !menu_is_open();
-}
+// The mouse is a plugin's free pointer now, not mouse look or bound buttons (Forge's menu and the settings menu closed);
+// its movement a plugin's (the quest camera).
+static bool pointer_mode(void) { return pm_mode_now() == MHGU_MOUSE_POINTER && !overlay_menu_open() && !menu_is_open(); }
+static bool camera_mode(void) { return pm_mode_now() == MHGU_MOUSE_CAPTURE && !overlay_menu_open() && !menu_is_open(); }
 
-// The pointer at window position (x, y) to the game's 2D canvas (g_ui_size, stretched over the window).
+// The pointer at window position (x, y) to the game's 2D canvas (g_ui_size, stretched over the window): the plugins'.
 static void pointer_to_menu(float x, float y) {
     int w = 0, h = 0;
     if (!ui_window() || !SDL_GetWindowSize(ui_window(), &w, &h) || w <= 0 || h <= 0) return;
     bool in = mouse_in && x >= 0 && y >= 0 && x < w && y < h;
-    dmouse_pointer(x * (float)g_ui_size[0] / (float)w, y * (float)g_ui_size[1] / (float)h, in);
+    float cx = x * (float)g_ui_size[0] / (float)w, cy = y * (float)g_ui_size[1] / (float)h;
+    pthread_mutex_lock(&pm_lock);
+    if (fabsf(cx - pm.x) >= 0.5f || fabsf(cy - pm.y) >= 0.5f || in != pm.inside) pm.x = cx, pm.y = cy, pm.inside = in, pm.moves++;
+    pthread_mutex_unlock(&pm_lock);
 }
 
 void host_input_event(const SDL_Event *e) {
@@ -423,8 +474,6 @@ void host_input_event(const SDL_Event *e) {
                 extern volatile int g_shadow_scissor_mode;
                 g_shadow_scissor_mode = (g_shadow_scissor_mode + 1) % 3;
                 LOG("[input] F8: shadow scissor mode %d\n", g_shadow_scissor_mode);
-            } else if (e->key.scancode == SDL_SCANCODE_F6) {  // (debug, MHGU_DIRECTMOUSE_LOG) the menu pointer's fuzzer
-                dmouse_fuzz(150);
             } else if (e->key.scancode == SDL_SCANCODE_F9) {  // (debug) colour clears: vkCmdClearAttachments <-> draws
                 extern volatile int g_clear_draw;
                 g_clear_draw = g_clear_draw > 0 ? 0 : 1;
@@ -433,9 +482,15 @@ void host_input_event(const SDL_Event *e) {
         }
         break;
     case SDL_EVENT_MOUSE_MOTION:
-        if (mouse_captured && dmouse_camera_active()) dmouse_camera_move(e->motion.xrel, e->motion.yrel);  // (as it comes)
-        else if (mouse_captured) mouse_dx += e->motion.xrel, mouse_dy += e->motion.yrel;
-        else if (g_config.direct_mouse) mouse_in = true, pointer_to_menu(e->motion.x, e->motion.y);
+        if (mouse_captured && camera_mode()) {  // (a plugin's camera: all of the movement, as it comes)
+            pthread_mutex_lock(&pm_lock);
+            pm.dx += e->motion.xrel, pm.dy += e->motion.yrel;
+            pthread_mutex_unlock(&pm_lock);
+        } else if (mouse_captured) {
+            mouse_dx += e->motion.xrel, mouse_dy += e->motion.yrel;
+        } else {
+            mouse_in = true, pointer_to_menu(e->motion.x, e->motion.y);
+        }
         break;
     case SDL_EVENT_WINDOW_MOUSE_ENTER: case SDL_EVENT_WINDOW_MOUSE_LEAVE:
         mouse_in = e->type == SDL_EVENT_WINDOW_MOUSE_ENTER;
@@ -446,12 +501,16 @@ void host_input_event(const SDL_Event *e) {
         if (mb < 1 || mb > 5) break;
         if (!e->button.down) {  // (whichever it pressed: the mode may have changed since)
             mouse_held &= ~(1u << mb);
+            pthread_mutex_lock(&pm_lock);
+            pm.held &= (uint8_t)~(left ? 1u : right ? 2u : 0u);
+            pthread_mutex_unlock(&pm_lock);
             break;
         }
-        if (pointer_mode() && (left || right)) {  // (presses of their own, a few frames long: a quick click is shorter than a frame)
-            if (right) add_step("B", g_present_count + 1, 4);
-            else if (dmouse_menu_open()) pointer_to_menu(e->button.x, e->button.y), dmouse_click();  // the item under it
-            else add_step("A", g_present_count + 1, 4);  // town: talk to the one in range; the title, a cutscene: on
+        if (pointer_mode() && (left || right)) {  // (a plugin's pointer: the click is its own)
+            pointer_to_menu(e->button.x, e->button.y);
+            pthread_mutex_lock(&pm_lock);
+            pm.held |= left ? 1u : 2u, pm.clicks |= left ? 1u : 2u;
+            pthread_mutex_unlock(&pm_lock);
             break;
         }
         if (!pointer_mode() && !mouse_captured && !mouse_no_capture) {  // (the click that captures the mouse is not a button press)
@@ -464,7 +523,13 @@ void host_input_event(const SDL_Event *e) {
         break;
     }
     case SDL_EVENT_MOUSE_WHEEL:  // (a turn presses what Wheel Up / Wheel Down are bound to, for a few frames)
-        if (e->wheel.y != 0) wheel_until[(e->wheel.y < 0) != (e->wheel.direction == SDL_MOUSEWHEEL_FLIPPED)] = g_present_count + 3;
+        if (e->wheel.y != 0) {
+            bool down = (e->wheel.y < 0) != (e->wheel.direction == SDL_MOUSEWHEEL_FLIPPED);
+            wheel_until[down] = g_present_count + 3;
+            pthread_mutex_lock(&pm_lock);
+            pm.wheel += down ? -1 : 1;
+            pthread_mutex_unlock(&pm_lock);
+        }
         break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         release_all();
@@ -486,15 +551,15 @@ void host_input_event(const SDL_Event *e) {
 
 static int32_t clamp_axis(int v) { return v < -32767 ? -32767 : v > 32767 ? 32767 : v; }
 
-// Capture or release the mouse as wanted, and add its movement to the right stick (direct mouse: the quest camera
-// takes it as it comes, host_input_event).
+// Capture or release the mouse as wanted, and add its movement to the right stick (a plugin's camera takes it as it
+// comes instead, host_input_event).
 static void mouse_update(int *rx, int *ry) {
     SDL_Window *w = ui_window();
-    bool cam = dmouse_camera_active() && !pointer_mode();
+    bool cam = camera_mode();
     static bool was_cam;
     if (cam && !was_cam && w && !mouse_no_capture && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS)) {
         if (!mouse_grab) LOG("[input] capturing the mouse for the camera\n");
-        mouse_grab = true;  // (direct mouse: the quest's camera takes the mouse; Esc lets it go)
+        mouse_grab = true;  // (a plugin's camera - the quest's - takes the mouse; Esc lets it go)
     }
     was_cam = cam;
     bool want = mouse_grab && !overlay_menu_open() && !menu_is_open() && !pointer_mode();  // (a menu, a town: free)
@@ -513,8 +578,13 @@ static void mouse_update(int *rx, int *ry) {
     float dt = last ? (float)(now - last) * 1e-9f : 0.0f;
     last = now;
     if (dt > 0.1f) dt = 0.1f;
-    if (now < test_until && cam) dmouse_camera_move(test_vx * dt, test_vy * dt);
-    else if (now < test_until) mouse_dx += test_vx * dt, mouse_dy += test_vy * dt;
+    if (now < test_until && cam) {
+        pthread_mutex_lock(&pm_lock);
+        pm.dx += test_vx * dt, pm.dy += test_vy * dt;
+        pthread_mutex_unlock(&pm_lock);
+    } else if (now < test_until) {
+        mouse_dx += test_vx * dt, mouse_dy += test_vy * dt;
+    }
     if (dt > 0.0f) {
         float a = 1.0f - expf(-dt / MOUSE_SMOOTH_S);
         vx += (mouse_dx / dt - vx) * a, vy += (mouse_dy / dt - vy) * a;
@@ -576,7 +646,12 @@ void host_input_update(void) {
     k = cx && cy ? 23170 : 32767;
     rx += cx * k, ry += cy * k;
     mouse_update(&rx, &ry);
-    if (dmouse_take_confirm()) add_step("A", g_present_count + 1, 4);  // (a menu click: its item is selected now)
+    pthread_mutex_lock(&pm_lock);
+    uint32_t press = pm_press, press_frames = pm_press_frames;  // (a plugin's: a click it turned into A or B)
+    pm_press = 0;
+    pthread_mutex_unlock(&pm_lock);
+    for (int i = 0; i < 16; i++)
+        if (press >> i & 1) add_step(button_names[i], g_present_count + 1, press_frames);
 
     if (pad) {
         // each Switch button's controller input: [Controller] / the settings menu, else the FaceButtons layout (the

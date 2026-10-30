@@ -57,7 +57,7 @@ class's getDTI at +0x14 (vtable = slot - 0x14). 3123 classes recovered by scanni
   with save data is the one with a sequence of its own, not the selection). setSequence(owner, id, seq) at
   0x746c74 tells which GUIs a menu animates (it sets its items' sequences as it opens and as the selection moves).
 
-## Design (2026-10-29, runtime/hle/directmouse.c, [Mouse] DirectMouse)
+## Design (2026-10-29, [Mouse] DirectMouse; since 2026-10-30 the DirectMouseInput mod: plugins/DirectMouseInput/dmi.c, a Forge plugin the port gives the mouse through mhgu_mouse_*)
 - Quests: mouse movement goes straight into uQuestCamera's angles at the start of its update (0x21fec4): yaw and
   pitch of all three pairs move together (no easing, no stick), 16 turn units per count x MouseSensitivity, pitch
   clamped to the stick's range. The mouse is captured when the camera starts running with the window focused.

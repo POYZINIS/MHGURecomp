@@ -34,6 +34,7 @@
 
 #include "bindings.h"
 #include "config.h"
+#include "forge.h"
 #include "hle/input.h"
 #include "menu.h"
 #include "rt.h"
@@ -821,6 +822,8 @@ static const char *act_title(int act) {  // (four buffers in turn: a status line
     return buf;
 }
 
+static bool dmi_running(void);
+
 static void page_controls(void) {
     if (ctl_tab == 0) {
         note("Click a box, then press the key or mouse button for it. Right-click a box (or press Delete) to clear it; "
@@ -842,7 +845,7 @@ static void page_controls(void) {
                     }
                 }
             }
-        if (g_config.direct_mouse)
+        if (g_config.direct_mouse && dmi_running())
             note("Direct mouse is on: in menus and towns a left click selects and confirms and a right click goes back, "
                  "whatever the mouse buttons are set to here.");
         return;
@@ -873,7 +876,17 @@ static void page_controls(void) {
     }
 }
 
+// The DirectMouseInput mod is running (a Forge plugin in mods/DirectMouseInput: the direct mouse is its).
+static bool dmi_running(void) {
+    const char *t[32];
+    int n = forge_plugin_titles(t, 32);
+    for (int i = 0; i < n; i++)
+        if (strstr(t[i], "DirectMouseInput")) return true;
+    return false;
+}
+
 static void page_mouse(void) {
+    bool dmi = dmi_running();
     GROUP(NULL) {
         ROW(1, NULL, "Direct mouse",
             "On: in menus the pointer selects what is under it, a left click confirms and a right click goes back; in "
@@ -884,8 +897,14 @@ static void page_mouse(void) {
             if (w_slider(2, &g_config.mouse_sensitivity, 0.1f, 10.0f, 0.01f, true, "%.2f\xc3\x97")) save_later("MouseSensitivity");
         }
     }
-    note("Click in the game window to capture the mouse for the camera; Esc lets it go. The game's own camera options "
-         "(speed, inverted axes) apply on top.");
+    if (!dmi)
+        note("Direct mouse comes with the DirectMouseInput mod, which isn't installed: put its folder in mods/. "
+             "Until then the mouse acts as the right stick.");
+    else if (g_config.direct_mouse)
+        note("In quests the window takes the mouse for the camera; Esc lets it go and a click takes it again.");
+    if (!dmi || !g_config.direct_mouse)
+        note("Click in the game window to capture the mouse for the camera; Esc lets it go. The game's own camera "
+             "options (speed, inverted axes) apply on top.");
 }
 
 // Resolutions offered (0 x 0: the desktop's / Auto), the file's own added when it is none of these.

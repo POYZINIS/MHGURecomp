@@ -98,12 +98,12 @@ can be changed in the settings menu (below):
 | Arrow keys | d-pad |
 | Ctrl / Alt | left / right stick click |
 
-Direct mouse is on by default: in menus the item under the pointer is selected, a left click confirms it and a right
-click goes back, and in quests the mouse turns the camera itself (the window takes the mouse when a quest's camera
-starts; Escape lets it go, a click takes it again). With `DirectMouse = Off` the mouse acts as the right stick
-instead: click in the game window to capture it, Escape lets it go (so does switching to another window), and the
-game's own camera options (speed, inverted axes) apply to it too. `MouseSensitivity` in the ini's `[Mouse]` section
-sets its speed either way.
+Direct mouse comes with the port as a mod, `mods\DirectMouseInput`, and is on by default: in menus the item under
+the pointer is selected, a left click confirms it and a right click goes back, and in quests the mouse turns the
+camera itself (the window takes the mouse when a quest's camera starts; Escape lets it go, a click takes it again).
+With `DirectMouse = Off`, or without the mod, the mouse acts as the right stick instead: click in the game window to
+capture it, Escape lets it go (so does switching to another window), and the game's own camera options (speed,
+inverted axes) apply to it too. `MouseSensitivity` in the ini's `[Mouse]` section sets its speed either way.
 
 When the game asks for text (names, chat), the keyboard types: Enter confirms, Escape cancels, Ctrl+V pastes.
 
@@ -127,9 +127,10 @@ Everything is in `mhgurecomp.ini`; each setting is explained in the file itself.
 - `[Performance]`: `FPS` (30 to 240), `VSync` (On / Off; above your monitor's refresh rate, turn VSync off)
 - `[Controls]`: `FaceButtons` (Position / Label), `BackgroundInput` (On / Off: the controller keeps working while
   the game's window is in the background, such as with a wiki in front of it; default On)
-- `[Mouse]`: `MouseSensitivity` (1 = default, 0.1 to 10), `DirectMouse` (On / Off, default On: menus follow the pointer - hover
-  selects, left click confirms, right click goes back -, the quest camera turns with the mouse itself instead of a
-  simulated right stick; towns keep their fixed camera and a left click talks to whoever is in range)
+- `[Mouse]`: `MouseSensitivity` (1 = default, 0.1 to 10), `DirectMouse` (On / Off, default On; the DirectMouseInput
+  mod: menus follow the pointer - hover selects, left click confirms, right click goes back -, the quest camera turns
+  with the mouse itself instead of a simulated right stick; towns keep their fixed camera and a left click talks to
+  whoever is in range)
 - `[Keyboard]`: the key(s) for each Switch button and stick direction (`A = Mouse Right`, `B = Space`,
   `MoveUp = W`...; up to two each, `Walk` = half tilt, `Camera*` = right stick keys for playing without a mouse)
 - `[Controller]`: the controller button for each Switch button (`Default` follows `FaceButtons`)
@@ -161,7 +162,9 @@ To install a mod, put the mod folder in `mods\`. Remove the folder to uninstall 
   `atmosphere\contents\0100770008DD8000\romfs` layout.
 - exefs patches (`.pchtxt`, `.ips`) are applied when they change data. Patches to game code can't be applied, because
   the code is precompiled; the log lists them.
-- Forge plugins (`.nro` in `romfs\nativeNX\plugins\`) are loaded. Forge's menu with the plugins' settings opens with
+- Forge plugins (`.nro` in `romfs\nativeNX\plugins\`) are loaded. The port comes with one, `mods\DirectMouseInput`
+  (direct mouse, above); plugins made for the port are in `plugins\` of the source (see Building from source).
+  Forge's menu with the plugins' settings opens with
   Insert (or the key in Forge's own `config.ini`, if a mod includes Forge's files); use the mouse, keyboard or
   controller in it. While it is open the game gets no controller input. Window positions are kept in
   `forge_imgui.ini`.
@@ -238,10 +241,12 @@ to `obj\`):
 - `mhgurecomp.exe`, the runtime;
 - `mhgugame.dll`, the recompiled game code;
 - the MSYS2 DLLs they need;
-- `data\exefs` and `data\romfs`, hard links to your game files, so they take no extra disk space.
+- `data\exefs` and `data\romfs`, hard links to your game files, so they take no extra disk space;
+- `mods\DirectMouseInput`, the direct mouse, built from `plugins\` (a Forge plugin; `make plugins` builds only the
+  plugins). Delete the folder from a game folder to go without it.
 
 To play from another folder, copy the contents of `build\` there; to update that folder, copy them over it (`data\`
-can be skipped when it is already there). The build never contains settings, caches, mods or logs, so your
+can be skipped when it is already there). The build never contains settings, caches, logs or other mods, so your
 `mhgurecomp.ini` and the rest stay as they are. Or start `run-game.bat`: it runs `build\mhgurecomp.exe` with the
 settings, caches, `mods\` and `log.txt` in `run\` (`MHGU_HOME`), keeping `build\` clean. Starting
 `build\mhgurecomp.exe` directly also works, but then it writes those into `build\`.
@@ -331,6 +336,7 @@ buttons), and screenshots come out black there.
 | `tools/` | the recompiler: `lifter.py` (ARM to C), `neon.py` (NEON / VFP), `gen.py` (whole modules), `nso.py`, test and research tools |
 | `runtime/` | the host side: CPU state, kernel and threads, Switch services (`services/`, `hle/`), networking (`net/`), the NVN graphics API on Vulkan (`nvn/`), settings, input, mods |
 | `docs/` | `STATUS.md`: progress, design notes, reverse-engineering findings, debug options |
+| `plugins/` | Forge plugins made for the port, each built as a mod folder (`DirectMouseInput`: the direct mouse); `include/forge_port.h`: what a plugin can call, Forge's API and the port's own `mhgu_*` |
 | `extras/` | `cheats/`: cheat files players can copy into their `cheats` folder |
 
 ## License

@@ -21,6 +21,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "config.h"
 #include "forge.h"
 #include "hle.h"
 #include "hle/input.h"
@@ -572,9 +573,50 @@ HLE_FUNC("forge_graphics_isMenuOpen", f_gfx_menu) { RET(overlay_menu_open()); }
 HLE_FUNC("forge_graphics_isMenuVisible", f_gfx_menu_visible) { RET(overlay_menu_open()); }
 
 // ------------------------------------------------------------------ the port's own calls for plugins (not Forge's)
-// mhgu_*: what a plugin made for the port (plugins/, runtime/forge_port.h's declarations) can ask of it besides
-// Forge's API. A plugin that may also run on a console declares them weak and checks them for NULL.
+// mhgu_*: what a plugin made for the port (plugins/, plugins/include/forge_port.h's declarations) can ask of it
+// besides Forge's API. A plugin that may also run on a console declares them weak and checks them for NULL.
 HLE_FUNC("mhgu_time_ns", f_time_ns) { RET64(plat_now_ns()); }  // a steady clock: nanoseconds
+HLE_FUNC("mhgu_frame", f_frame) { RET(g_present_count); }      // frames presented so far
+
+// the mouse (host_input.c): MhguMouse *out as PluginMouse is laid out; what it is for, said each frame
+HLE_FUNC("mhgu_mouse_get", f_mouse_get) {
+    PluginMouse m;
+    plugin_mouse_take(&m);
+    uint32_t o = ARG(0);
+    memcpy(G2H(o), &m.x, 24);  // (x, y, w, h, dx, dy)
+    ST32(o + 24, m.moves);
+    ST8(o + 28, m.inside), ST8(o + 29, m.held), ST8(o + 30, m.clicks), ST8(o + 31, (uint8_t)m.wheel);
+}
+HLE_FUNC("mhgu_mouse_mode", f_mouse_mode) { plugin_mouse_mode((int)ARG(0)); }
+HLE_FUNC("mhgu_pad_press", f_pad_press) { plugin_pad_press(ARG(0), ARG(1)); }  // (buttons, frames)
+
+// mhgu_ini_get(section, key, out, size): a setting as mhgurecomp.ini has it now (config_file_get)
+HLE_FUNC("mhgu_ini_get", f_ini_get) {
+    char v[256];
+    bool ok = config_file_get(gstr(ARG(0)), gstr(ARG(1)), v, sizeof v);
+    if (ok && ARG(3)) snprintf((char *)G2H(ARG(2)), ARG(3), "%s", v);
+    RET(ok);
+}
+HLE_FUNC("mhgu_env", f_env) {  // (name, out, size): an environment variable
+    const char *e = getenv(gstr(ARG(0)));
+    if (e && ARG(2)) snprintf((char *)G2H(ARG(1)), ARG(2), "%s", e);
+    RET(e != NULL);
+}
+// mhgu_control_next(seq, out, size): the control file's next line for the plugins (a command the port doesn't know)
+HLE_FUNC("mhgu_control_next", f_control_next) {
+    char line[256];
+    uint32_t s = plugin_control_next(ARG(0), line, sizeof line);
+    if (s && ARG(2)) snprintf((char *)G2H(ARG(1)), ARG(2), "%s", line);
+    RET(s);
+}
+HLE_FUNC("mhgu_log", f_mhgu_log) {  // (format, ...): a line of the log as the port writes its own
+    GArgs a = {c, 1, c->r[13]};
+    char buf[1024];
+    gformat(buf, sizeof buf, gstr(ARG(0)), &a);
+    size_t n = strlen(buf);
+    while (n && buf[n - 1] == '\n') buf[--n] = 0;
+    LOG("%s\n", buf);
+}
 
 // ------------------------------------------------------------------ plugins
 void forge_plugins_imgui(Cpu *c, int which, uint32_t a0, uint32_t a1, uint32_t a2) {

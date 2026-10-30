@@ -25,6 +25,22 @@ void forge_test_hook(uint32_t target);  // (debug) a plugin-style hook on target
 void forge_imgui_init(void *cpu);  // (after the ImGui context exists: plugins get it)
 void forge_imgui_run(void *cpu, int which);
 
+// host_input.c, behind the port's own calls for plugins (forge.c mhgu_*; plugins/include/forge_port.h): the mouse
+// for a plugin that takes it over (DirectMouseInput), buttons it presses, the control file's lines for plugins.
+// Any thread.
+enum { MHGU_MOUSE_PORT, MHGU_MOUSE_POINTER, MHGU_MOUSE_CAPTURE };  // what the mouse is for (plugin_mouse_mode)
+typedef struct {
+    float x, y, w, h;  // the pointer on the game's 2D canvas (menus' coordinates, y down), the canvas' size
+    float dx, dy;      // movement since the last take (mouse counts)
+    uint32_t moves;    // pointer moves so far
+    uint8_t inside, held, clicks;  // over the window; buttons held, pressed since the last take (1 left, 2 right)
+    int8_t wheel;      // wheel notches since the last take (up: +)
+} PluginMouse;
+void plugin_mouse_take(PluginMouse *out);  // (clears the clicks, wheel and movement)
+void plugin_mouse_mode(int mode);          // MHGU_MOUSE_*, said each frame (unsaid for a moment: MHGU_MOUSE_PORT)
+void plugin_pad_press(uint32_t buttons, uint32_t frames);  // Switch buttons (bit 0 A, 1 B ...: hle/input.h)
+uint32_t plugin_control_next(uint32_t seq, char *out, size_t size);  // the line after seq (its seq), 0: none
+
 #ifdef __cplusplus
 }
 #endif

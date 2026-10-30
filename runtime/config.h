@@ -1,5 +1,7 @@
 // Player settings: mhgurecomp.ini in the game folder (written with the defaults when it is missing).
 #pragma once
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 enum { DISPLAY_WINDOWED, DISPLAY_FULLSCREEN, DISPLAY_BORDERLESS };
@@ -59,3 +61,7 @@ void config_edit_begin(void);
 void config_edit_put(const char *section, const char *key, const char *value);
 void config_edit_setting(const char *key);  // the setting of that ini name, as g_config / g_config_sizes have it now
 void config_edit_end(void);
+
+// A setting as mhgurecomp.ini has it now (section and key in any case, spaces / '_' / '-' left out; the value without
+// its comment): false when the file or the key is missing. (Plugins: runtime/forge.c mhgu_ini_get; any thread.)
+bool config_file_get(const char *section, const char *key, char *out, size_t size);
