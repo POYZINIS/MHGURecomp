@@ -375,6 +375,11 @@ static void create_swapchain(void) {
     LOG("[vk] swapchain %ux%u, %u images, format %d\n", ext.width, ext.height, g_vk.sc_count, sf.format);
 }
 
+// The settings menu's VSync switch (runtime/menu.c, host main thread): the swapchain is made again with the new
+// present mode before the next frame.
+static volatile int present_mode_changed;
+void vk_request_present_mode(void) { present_mode_changed = 1; }
+
 static void recreate_swapchain(void) {
     vk_wait_seq(vk_pending_seq() - 1);
     vkDeviceWaitIdle(g_vk.dev);
@@ -405,8 +410,12 @@ static bool frame_begin(void) {
     cur_frame.ok = false;
     int w, h;
     SDL_GetWindowSizeInPixels(ui_window(), &w, &h);
-    if (!w || !h) return false;  // minimised
-    if (!g_vk.swapchain || (uint32_t)w != g_vk.sc_extent.width || (uint32_t)h != g_vk.sc_extent.height) recreate_swapchain();
+    // minimised (Windows keeps the window's size, but its surface is 0 x 0: every acquire would be out of date)
+    if (!w || !h || (SDL_GetWindowFlags(ui_window()) & SDL_WINDOW_MINIMIZED)) return false;
+    if (!g_vk.swapchain || (uint32_t)w != g_vk.sc_extent.width || (uint32_t)h != g_vk.sc_extent.height || present_mode_changed) {
+        present_mode_changed = 0;
+        recreate_swapchain();
+    }
     if (!g_vk.swapchain) return false;
     slot = (slot + 1) % FRAMES;
     if (!acquire_sem[slot]) acquire_sem[slot] = binary_semaphore();
@@ -416,7 +425,13 @@ static bool frame_begin(void) {
         recreate_swapchain();
         r = vkAcquireNextImageKHR(g_vk.dev, g_vk.swapchain, UINT64_MAX, acquire_sem[slot], VK_NULL_HANDLE, &cur_frame.image);
     }
-    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { LOG("[vk] acquire failed: %d\n", r); return false; }
+    static VkResult failed;  // (logged once while it keeps failing the same way)
+    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
+        if (r != failed) LOG("[vk] acquire failed: %d\n", r);
+        failed = r;
+        return false;
+    }
+    failed = VK_SUCCESS;
     cur_frame.acquired = acquire_sem[slot];
     slot_seq[slot] = vk_pending_seq();
     VkCommandBuffer cb = vk_cmd();
@@ -539,6 +554,8 @@ void backend_present(NvnTexture *t) {
         OverlayTarget ot = {g_vk.inst, g_vk.phys, g_vk.dev, g_vk.qfam, g_vk.queue, g_vk.pcache, sc_pass,
                             g_vk.sc_extent.width, g_vk.sc_extent.height};
         overlay_draw(vk_cmd(), &ot);  // (Forge plugins' ImGui overlay, over the game: runtime/overlay.cpp)
+        void vk_menu_draw(VkCommandBuffer cb, uint32_t w, uint32_t h);
+        vk_menu_draw(vk_cmd(), g_vk.sc_extent.width, g_vk.sc_extent.height);  // (the settings menu: runtime/menu.c)
         char path[300];
         extern char g_shot_request[256];  // (runtime/host_input.c: MHGU_CONTROL "shot <name>")
         extern char g_burst_name[200];

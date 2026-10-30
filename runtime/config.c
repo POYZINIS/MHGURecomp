@@ -13,10 +13,12 @@
 
 #include <SDL3/SDL.h>
 
+#include "bindings.h"
 #include "config.h"
 #include "rt.h"
 
-Config g_config = {DISPLAY_BORDERLESS, 1920, 1080, 0, 0, 60, 1, 1, 1, FACE_POSITION, 39500, "", 1, 1, 1, {{1, 1, 1, 1}, 2}, 1.0f, 0.0f, 1.0f, UI_CENTER, 1};
+Config g_config = {DISPLAY_BORDERLESS, 1920, 1080, 0, 0, 60, 1, 1, 1, FACE_POSITION, 39500, "", 1, 1, 1, {{1, 1, 1, 1}, 2}, 1.0f, 0.0f, 1.0f, UI_CENTER, 1, 1};
+ConfigSizes g_config_sizes = {1920, 1080, 0, 0};
 uint32_t g_render_size[2] = {1920, 1080};
 float g_render_aspect = 16.0f / 9.0f;
 float g_fov_scale = 1.0f;
@@ -81,10 +83,72 @@ static const char DEFAULT_INI[] =
     "BackgroundInput = On\n"
     "\n"
     "[Mouse]\n"
-    "; Mouse look: click in the game window to capture the mouse (it then turns the camera, as the right stick), Esc\n"
-    "; lets it go. Sensitivity: 1 = full stick tilt at a brisk mouse movement; 0.5 slower, 2 faster (0.1 to 10). The\n"
-    "; game's own camera options (speed, inverted axes) apply on top.\n"
+    "; Mouse look (DirectMouse Off): click in the game window to capture the mouse (it then turns the camera, as the\n"
+    "; right stick, the game's own camera options on top), Esc lets it go. Sensitivity: 1 = full stick tilt at a brisk\n"
+    "; mouse movement (DirectMouse: 4096 counts a full turn); 0.5 slower, 2 faster (0.1 to 10).\n"
     "MouseSensitivity = 1.0\n"
+    "\n"
+    "; Direct mouse: On or Off. On: the mouse goes straight into the game instead of acting as a controller's stick.\n"
+    "; In menus it is a pointer: the item under it is selected, a left click confirms, a right click goes back (B).\n"
+    "; In quests it turns the camera itself (MouseSensitivity sets how far). Elsewhere (towns with their fixed camera,\n"
+    "; the title, cutscenes) the pointer stays free: a left click is A (talk to the one in range), a right click B.\n"
+    "DirectMouse = On\n"
+    "\n"
+    "[Keyboard]\n"
+    "; Keyboard and mouse controls: <Switch button or action> = <key>[, <second key>]. Keys by name (Space, Left Shift,\n"
+    "; Return, Keypad Enter, A, F1...: where the key is on a US keyboard, the same key on any layout) or Mouse Left,\n"
+    "; Mouse Right, Mouse Middle, Mouse X1, Mouse X2, Wheel Up, Wheel Down. Empty: none. The settings menu (the ` key,\n"
+    "; below Esc) changes them; delete a line to get its default back. With DirectMouse on, a left click in menus and\n"
+    "; towns selects and confirms and a right click goes back, whatever is set here.\n"
+    "A = Mouse Right\n"
+    "B = Space\n"
+    "X = Mouse Left\n"
+    "Y = R\n"
+    "L = Q\n"
+    "R = E\n"
+    "ZL = Tab\n"
+    "ZR = T\n"
+    "Plus = Return, Keypad Enter\n"
+    "Minus = Backspace\n"
+    "DpadUp = Up\n"
+    "DpadDown = Down\n"
+    "DpadLeft = Left\n"
+    "DpadRight = Right\n"
+    "LStick = Left Ctrl, Right Ctrl\n"
+    "RStick = Left Alt, Right Alt\n"
+    "MoveUp = W\n"
+    "MoveDown = S\n"
+    "MoveLeft = A\n"
+    "MoveRight = D\n"
+    "; Walk: held, the left stick moves at half tilt.\n"
+    "Walk = Left Shift\n"
+    "; Camera keys: the right stick, for playing without a mouse.\n"
+    "CameraUp =\n"
+    "CameraDown =\n"
+    "CameraLeft =\n"
+    "CameraRight =\n"
+    "\n"
+    "[Controller]\n"
+    "; Controller buttons: <Switch button> = the controller's button by its place, as SDL names them: south, east, west,\n"
+    "; north (the face buttons: bottom, right, left, top), leftshoulder, rightshoulder, lefttrigger, righttrigger, back,\n"
+    "; start, guide, leftstick, rightstick, dpup, dpdown, dpleft, dpright, misc1, touchpad. Default: as FaceButtons in\n"
+    "; [Controls] lays them out. The settings menu (the ` key) changes them.\n"
+    "A = Default\n"
+    "B = Default\n"
+    "X = Default\n"
+    "Y = Default\n"
+    "L = Default\n"
+    "R = Default\n"
+    "ZL = Default\n"
+    "ZR = Default\n"
+    "Plus = Default\n"
+    "Minus = Default\n"
+    "DpadUp = Default\n"
+    "DpadDown = Default\n"
+    "DpadLeft = Default\n"
+    "DpadRight = Default\n"
+    "LStick = Default\n"
+    "RStick = Default\n"
     "\n"
     "[Multiplayer]\n"
     "; Local Play (the Switch's wireless play with people nearby) over the network. Create a hub under Local Play to\n"
@@ -211,13 +275,18 @@ static bool parse_anchor(const char *v, int *out) {
 static int desktop_w, desktop_h;
 static bool render_auto = true;
 
-static void set_key(const char *key, char *val, int line) {
+static void set_key(const char *section, const char *key, char *val, int line) {
     char k[64], v[256];
     snprintf(k, sizeof k, "%s", key);
     snprintf(v, sizeof v, "%s", val);
     squash(k);
     squash(v);
     bool ok = true;
+    if (!strcmp(section, "keyboard") || !strcmp(section, "controller")) {  // (runtime/bindings.c)
+        if (!bindings_parse(section[0] == 'k', key, val, line))
+            LOG("[config] line %d: unknown setting \"%s\" in [%s] (ignored)\n", line, key, section);
+        return;
+    }
     if (!strcmp(k, "mode")) {
         if (!strcmp(v, "fullscreen") || !strcmp(v, "exclusive") || !strcmp(v, "exclusivefullscreen"))
             g_config.display_mode = DISPLAY_FULLSCREEN;
@@ -227,9 +296,11 @@ static void set_key(const char *key, char *val, int line) {
     } else if (!strcmp(k, "resolution")) {
         if (!strcmp(v, "desktop") || !strcmp(v, "auto")) g_config.width = g_config.height = 0;
         else ok = parse_size(v, &g_config.width, &g_config.height);
+        if (ok) g_config_sizes.width = g_config.width, g_config_sizes.height = g_config.height;
     } else if (!strcmp(k, "renderresolution")) {
         if (!strcmp(v, "auto")) render_auto = true;
         else if ((ok = parse_size(v, &g_config.render_w, &g_config.render_h))) render_auto = false;
+        if (ok) g_config_sizes.render_w = render_auto ? 0 : g_config.render_w, g_config_sizes.render_h = render_auto ? 0 : g_config.render_h;
     } else if (!strcmp(k, "aspectratio")) {
         ok = parse_aspect(v, &g_config.aspect_ratio);
     } else if (!strcmp(k, "fov")) {
@@ -265,6 +336,10 @@ static void set_key(const char *key, char *val, int line) {
     } else if (!strcmp(k, "mousesensitivity")) {
         float f = strtof(v, NULL);
         if ((ok = f >= 0.1f && f <= 10.0f)) g_config.mouse_sensitivity = f;
+    } else if (!strcmp(k, "directmouse")) {
+        if (!strcmp(v, "on") || !strcmp(v, "1") || !strcmp(v, "true") || !strcmp(v, "yes")) g_config.direct_mouse = 1;
+        else if (!strcmp(v, "off") || !strcmp(v, "0") || !strcmp(v, "false") || !strcmp(v, "no")) g_config.direct_mouse = 0;
+        else ok = false;
     } else if (!strcmp(k, "port")) {
         int p = atoi(v);
         if (p > 0 && p < 65536) g_config.ldn_port = p;
@@ -353,17 +428,22 @@ static void append_missing_sections(const char *path, const char *seen) {
 void config_load(void) {
     char path[1100];
     ini_path(path, sizeof path);
+    bindings_defaults(&g_bind);
     FILE *f = fopen(path, "r");
     if (!f) {
         FILE *o = fopen(path, "w");
         if (o) { fputs(DEFAULT_INI, o); fclose(o); LOG("[config] wrote the default settings to %s\n", path); }
         else LOG("[config] %s is missing and could not be written; using the defaults\n", path);
     } else {
-        char buf[512], seen[512] = "|";
+        char buf[512], seen[512] = "|", section[64] = "";
         int line = 0;
         while (fgets(buf, sizeof buf, f)) {
             line++;
             char *s = trim(buf);
+            if (*s == '[' && strchr(s, ']')) {
+                snprintf(section, sizeof section, "%.*s", (int)(strchr(s, ']') - s - 1), s + 1);
+                squash(section);
+            }
             if (*s == '[' && strchr(s, ']') && strlen(seen) + strlen(s) + 2 < sizeof seen) {
                 for (char *q = s + 1; *q != ']'; q++) {
                     size_t n = strlen(seen);
@@ -377,7 +457,7 @@ void config_load(void) {
             *eq = 0;
             char *val = trim(eq + 1), *cmt = strpbrk(val, ";#");
             if (cmt) *cmt = 0;
-            set_key(trim(s), trim(val), line);
+            set_key(section, trim(s), trim(val), line);
         }
         fclose(f);
         append_missing_sections(path, seen);
@@ -453,4 +533,173 @@ void config_load(void) {
         hp->scale[0], hp->scale[1], hp->scale[2], hp->scale[3], hp->quests);
     LOG("[config] Village quests at the Hub counter: %s (their HP x%.2f first)\n", g_config.village_in_hub ? "on" : "off",
         hp->village);
+}
+
+// ---- settings written back (the settings menu): the file as lines, edited in place, written out at the end
+static char **ed_line;
+static int ed_n, ed_cap;
+static bool ed_open;
+
+static void ed_insert(int at, const char *s) {
+    if (ed_n == ed_cap) ed_line = realloc(ed_line, (size_t)(ed_cap = ed_cap ? ed_cap * 2 : 256) * sizeof *ed_line);
+    memmove(ed_line + at + 1, ed_line + at, (size_t)(ed_n - at) * sizeof *ed_line);
+    ed_line[at] = strdup(s);
+    ed_n++;
+}
+
+void config_edit_begin(void) {
+    char path[1100];
+    ini_path(path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    char *text = NULL;
+    long n = 0;
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (n < 0) n = 0;
+        text = malloc((size_t)n + 1);
+        n = text ? (long)fread(text, 1, (size_t)n, f) : 0;
+        if (text) text[n] = 0;
+        fclose(f);
+    }
+    if (!text || !n) { free(text); text = strdup(DEFAULT_INI); }  // (the file gone: its comments come back)
+    for (int i = 0; i < ed_n; i++) free(ed_line[i]);
+    ed_n = 0;
+    for (char *p = text; *p;) {
+        char *e = strchr(p, '\n'), line[600];
+        snprintf(line, sizeof line, "%.*s", (int)(e ? e - p : (long)strlen(p)), p);
+        size_t len = strlen(line);
+        if (len && line[len - 1] == '\r') line[len - 1] = 0;
+        ed_insert(ed_n, line);
+        if (!e) break;
+        p = e + 1;
+    }
+    free(text);
+    ed_open = true;
+}
+
+void config_edit_put(const char *section, const char *key, const char *value) {
+    if (!ed_open) return;
+    char want_s[64], want_k[64], set[600];
+    snprintf(want_s, sizeof want_s, "%s", section);
+    snprintf(want_k, sizeof want_k, "%s", key);
+    squash(want_s);
+    squash(want_k);
+    snprintf(set, sizeof set, value[0] ? "%s = %s" : "%s =", key, value);
+    int sec = -1, last = -1;
+    bool in = false;
+    for (int i = 0; i < ed_n; i++) {
+        char tmp[600];
+        snprintf(tmp, sizeof tmp, "%s", ed_line[i]);
+        char *s = trim(tmp);
+        if (*s == '[') {
+            if (in) break;
+            char *close = strchr(s, ']');
+            if (close) {
+                *close = 0;
+                squash(s + 1);
+                if ((in = !strcmp(s + 1, want_s))) sec = last = i;
+            }
+            continue;
+        }
+        if (!in || !*s || *s == ';' || *s == '#') continue;
+        last = i;
+        char *eq = strchr(s, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char k[64];
+        snprintf(k, sizeof k, "%s", trim(s));
+        squash(k);
+        if (!strcmp(k, want_k)) {
+            free(ed_line[i]);
+            ed_line[i] = strdup(set);
+            return;
+        }
+    }
+    if (sec >= 0) { ed_insert(last + 1, set); return; }
+    if (ed_n && ed_line[ed_n - 1][0]) ed_insert(ed_n, "");
+    char head[80];
+    snprintf(head, sizeof head, "[%s]", section);
+    ed_insert(ed_n, head);
+    ed_insert(ed_n, set);
+}
+
+static void put_factor(char *out, size_t n, float f) {  // 1.0, 0.25, 2.5
+    snprintf(out, n, "%.2f", f);
+    size_t len = strlen(out);
+    if (len > 3 && out[len - 1] == '0') out[len - 1] = 0;
+}
+
+void config_edit_setting(const char *key) {
+    static const struct { const char *key, *section; } where[] = {
+        {"Mode", "Display"}, {"Resolution", "Display"}, {"RenderResolution", "Display"}, {"AspectRatio", "Display"},
+        {"FOV", "Display"}, {"UIAnchor", "Display"}, {"MSAA", "Anti-aliasing"}, {"FXAA", "Anti-aliasing"},
+        {"FPS", "Performance"}, {"VSync", "Performance"}, {"FaceButtons", "Controls"}, {"BackgroundInput", "Controls"},
+        {"MouseSensitivity", "Mouse"}, {"DirectMouse", "Mouse"}, {"Port", "Multiplayer"}, {"Join", "Multiplayer"},
+        {"SyncSmallMonsters", "Multiplayer"}, {"1Player", "Monster HP"}, {"2Players", "Monster HP"},
+        {"3Players", "Monster HP"}, {"4Players", "Monster HP"}, {"VillageQuestsInHub", "Village Quests"},
+        {"HubHP", "Village Quests"}, {"BonusContent", "Bonus Content"},
+    };
+    const char *sec = NULL;
+    for (unsigned i = 0; i < sizeof where / sizeof *where; i++) if (!strcmp(where[i].key, key)) sec = where[i].section;
+    if (!sec) { LOG("[config] no setting %s to save\n", key); return; }
+    const Config *c = &g_config;
+    const ConfigSizes *z = &g_config_sizes;
+    char v[300] = "";
+    if (!strcmp(key, "Mode")) {
+        static const char *const m[] = {"Windowed", "Fullscreen", "Borderless"};
+        snprintf(v, sizeof v, "%s", m[c->display_mode]);
+    } else if (!strcmp(key, "Resolution")) {
+        if (z->width) snprintf(v, sizeof v, "%dx%d", z->width, z->height);
+        else snprintf(v, sizeof v, "Desktop");
+    } else if (!strcmp(key, "RenderResolution")) {
+        if (z->render_w) snprintf(v, sizeof v, "%dx%d", z->render_w, z->render_h);
+        else snprintf(v, sizeof v, "Auto");
+    } else if (!strcmp(key, "AspectRatio")) {
+        static const struct { int w, h; } r[] = {{16, 9}, {16, 10}, {21, 9}, {32, 9}, {4, 3}, {5, 4}, {3, 2}};
+        snprintf(v, sizeof v, c->aspect_ratio > 0 ? "%.3f" : "Auto", c->aspect_ratio);
+        for (unsigned i = 0; i < sizeof r / sizeof *r; i++)
+            if (fabsf(c->aspect_ratio - (float)r[i].w / (float)r[i].h) < 0.005f) snprintf(v, sizeof v, "%d:%d", r[i].w, r[i].h);
+    } else if (!strcmp(key, "UIAnchor")) {
+        static const char *const a[] = {"Center", "21:9", "32:9", "Edges"};
+        snprintf(v, sizeof v, "%s", a[(c->ui_anchor >= UI_CENTER && c->ui_anchor <= UI_EDGES ? c->ui_anchor : UI_CENTER) - 1]);
+    } else if (!strcmp(key, "MSAA")) {
+        if (c->msaa > 1) snprintf(v, sizeof v, "%dx", c->msaa);
+        else snprintf(v, sizeof v, "Off");
+    } else if (!strcmp(key, "FPS")) {
+        snprintf(v, sizeof v, "%d", c->fps);
+    } else if (!strcmp(key, "Port")) {
+        snprintf(v, sizeof v, "%d", c->ldn_port);
+    } else if (!strcmp(key, "Join")) {
+        snprintf(v, sizeof v, "%s", c->ldn_join);
+    } else if (!strcmp(key, "FaceButtons")) {
+        snprintf(v, sizeof v, "%s", c->face_buttons == FACE_LABEL ? "Label" : "Position");
+    } else if (!strcmp(key, "FOV") || !strcmp(key, "MouseSensitivity") || !strcmp(key, "HubHP") || key[1] == 'P') {
+        put_factor(v, sizeof v, key[0] == 'F' ? c->fov : key[0] == 'M' ? c->mouse_sensitivity
+                              : key[0] == 'H' ? c->hp.village : c->hp.scale[key[0] - '1']);  // (1Player .. 4Players)
+    } else {  // On / Off
+        int on = !strcmp(key, "FXAA") ? c->fxaa : !strcmp(key, "VSync") ? c->vsync
+               : !strcmp(key, "BackgroundInput") ? c->background_input : !strcmp(key, "DirectMouse") ? c->direct_mouse
+               : !strcmp(key, "SyncSmallMonsters") ? c->sync_small_monsters : !strcmp(key, "BonusContent") ? c->bonus_content
+               : c->village_in_hub;
+        snprintf(v, sizeof v, "%s", on ? "On" : "Off");
+    }
+    config_edit_put(sec, key, v);
+}
+
+void config_edit_end(void) {
+    if (!ed_open) return;
+    char path[1100];
+    ini_path(path, sizeof path);
+    FILE *o = fopen(path, "w");
+    if (o) {
+        for (int i = 0; i < ed_n; i++) fprintf(o, "%s\n", ed_line[i]);
+        fclose(o);
+    } else {
+        LOG("[config] could not write %s\n", path);
+    }
+    for (int i = 0; i < ed_n; i++) free(ed_line[i]);
+    ed_n = 0;
+    ed_open = false;
 }

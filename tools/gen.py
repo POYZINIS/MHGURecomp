@@ -55,6 +55,41 @@ PATCHES = {
     # uScheduler's update (push {r4, lr}): runtime/hle/evskip.c speeds up an event camera pan when A is pressed
     ('main', 0xb66164): (0xE92D4010, '{ extern void evskip_update(Cpu *); evskip_update(c); '
                                      'uint32_t ea = c->r[13] - 8u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[14]); c->r[13] = ea; }'),
+    # Direct mouse (runtime/hle/directmouse.c, settings DirectMouse): the end of cCursor's update (mov r0, fp: its
+    # return value) and the Yes/No choice (push {r4, lr}), where the item under the pointer becomes the selection;
+    # cUIObject's three helpers that put a menu's highlight on a row, a column, a grid cell (push {r4, r5, r6, lr}) and
+    # uGUIResourceOwner's setY (ldr r2, [r0, #0x298]), where the menus' items are; uQuestCamera's update (push {r4-r11,
+    # lr}), where the mouse turns the camera
+    ('main', 0x74f228): (0xE1A0000B, '{ extern uint32_t dmouse_cursor_done(Cpu *, uint32_t); c->r[0] = dmouse_cursor_done(c, c->r[11]); }'),
+    ('main', 0x74fbb0): (0xE92D4010, '{ extern void dmouse_yesno(Cpu *); dmouse_yesno(c); '
+                                     'uint32_t ea = c->r[13] - 8u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[14]); c->r[13] = ea; }'),
+    ('main', 0x77033c): (0xE92D4070, '{ extern void dmouse_place(Cpu *, int); dmouse_place(c, 0); '
+                                     'uint32_t ea = c->r[13] - 16u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[5]); '
+                                     'ST32(ea + 8u, c->r[6]); ST32(ea + 12u, c->r[14]); c->r[13] = ea; }'),
+    ('main', 0x770378): (0xE92D4070, '{ extern void dmouse_place(Cpu *, int); dmouse_place(c, 1); '
+                                     'uint32_t ea = c->r[13] - 16u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[5]); '
+                                     'ST32(ea + 8u, c->r[6]); ST32(ea + 12u, c->r[14]); c->r[13] = ea; }'),
+    ('main', 0x7703b4): (0xE92D4070, '{ extern void dmouse_place(Cpu *, int); dmouse_place(c, 2); '
+                                     'uint32_t ea = c->r[13] - 16u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[5]); '
+                                     'ST32(ea + 8u, c->r[6]); ST32(ea + 12u, c->r[14]); c->r[13] = ea; }'),
+    ('main', 0x745ac0): (0xE5902298, '{ extern void dmouse_sety(Cpu *); dmouse_sety(c); c->r[2] = LD32(c->r[0] + 0x298u); }'),
+    # uGUIResourceOwner's setSequence (ldr r3, [r0, #0x298]): the GUIs a menu animates, for menus that show the
+    # selection as an animation of the item
+    ('main', 0x746c74): (0xE5903298, '{ extern void dmouse_seq(Cpu *); dmouse_seq(c); c->r[3] = LD32(c->r[0] + 0x298u); }'),
+    # uGUIResourceOwner's move (push {r4, lr}): every GUI that runs, once a frame; its setX (ldr r2, [r0, #0x298]) and
+    # setXY (push {r4, lr}): how menus show a move
+    ('main', 0x744b88): (0xE92D4010, '{ extern void dmouse_gui(Cpu *); dmouse_gui(c); '
+                                     'uint32_t ea = c->r[13] - 8u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[14]); c->r[13] = ea; }'),
+    ('main', 0x745a40): (0xE5902298, '{ extern void dmouse_set(Cpu *, int); dmouse_set(c, 0); c->r[2] = LD32(c->r[0] + 0x298u); }'),
+    ('main', 0x745c20): (0xE92D4010, '{ extern void dmouse_set(Cpu *, int); dmouse_set(c, 2); '
+                                     'uint32_t ea = c->r[13] - 8u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[14]); c->r[13] = ea; }'),
+    # cBoxCursor's update (mov r2, #0), the item and equipment boxes' cells: done there when the pointer selects
+    ('main', 0x7530b8): (0xE3A02000, '{ extern int dmouse_box(Cpu *); if (dmouse_box(c)) { c->pc = c->r[14]; return; } c->r[2] = 0; }'),
+    ('main', 0x21fec4): (0xE92D4FF0, '{ extern void dmouse_camera(Cpu *); dmouse_camera(c); '
+                                     'uint32_t ea = c->r[13] - 36u; ST32(ea, c->r[4]); ST32(ea + 4u, c->r[5]); '
+                                     'ST32(ea + 8u, c->r[6]); ST32(ea + 12u, c->r[7]); ST32(ea + 16u, c->r[8]); '
+                                     'ST32(ea + 20u, c->r[9]); ST32(ea + 24u, c->r[10]); ST32(ea + 28u, c->r[11]); '
+                                     'ST32(ea + 32u, c->r[14]); c->r[13] = ea; }'),
 }
 
 

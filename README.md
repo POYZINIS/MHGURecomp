@@ -16,7 +16,7 @@ Status: fully playable, but there may be some bugs. I've played a dozen hunts wi
   the screen's sides
 - Frame rate cap anywhere between 30-240 fps
 - Supports almost every controller under the sun
-- Experimental KB+M controls
+- Experimental KB+M controls with direct mouse (on by default): a pointer in menus, the camera turned by the mouse itself in quests
 - Optional: small monsters are properly synced between players in multiplayer
 - Optional: monster HP scaling by playercount
 - Fast-forward unskippable cutscenes by pressing A
@@ -83,13 +83,14 @@ To move an existing Switch save over, put its `system` and `system_backup` files
 
 Almost every controller under the sun should work, as long as it has SDL support. If you really want to swap the face buttons on non-Nintendo controllers, open the .ini file and set `FaceButtons = Label`.
 
-Keyboard and mouse support (not recommended):
+Keyboard and mouse support (not recommended). These are the defaults; every key, mouse button and controller button
+can be changed in the settings menu (below):
 
 | Key | Switch button |
 | --- | --- |
 | W A S D | left stick (hold Left Shift to walk) |
-| Mouse | right stick (camera) |
-| Left click / Right click | X / A |
+| Mouse | the camera in quests; a pointer everywhere else |
+| Left click / Right click | in quests X / A; elsewhere select and confirm (A) / back (B) |
 | Space / R | B / Y |
 | Q / E | L / R |
 | Tab / T | ZL / ZR |
@@ -97,15 +98,24 @@ Keyboard and mouse support (not recommended):
 | Arrow keys | d-pad |
 | Ctrl / Alt | left / right stick click |
 
-Click in the game window to capture the mouse for the camera; Escape lets it go (so does switching to another
-window). `MouseSensitivity` in the ini's `[Mouse]` section sets its speed; the game's own camera options (speed,
-inverted axes) apply to it too.
+Direct mouse is on by default: in menus the item under the pointer is selected, a left click confirms it and a right
+click goes back, and in quests the mouse turns the camera itself (the window takes the mouse when a quest's camera
+starts; Escape lets it go, a click takes it again). With `DirectMouse = Off` the mouse acts as the right stick
+instead: click in the game window to capture it, Escape lets it go (so does switching to another window), and the
+game's own camera options (speed, inverted axes) apply to it too. `MouseSensitivity` in the ini's `[Mouse]` section
+sets its speed either way.
 
 When the game asks for text (names, chat), the keyboard types: Enter confirms, Escape cancels, Ctrl+V pastes.
 
 Other keys: Alt+Enter or F11 switches between windowed and full screen, F12 takes a screenshot, F7 cycles MSAA.
 
 ## Settings
+
+Press **`** (the key below Escape) in the game for the settings menu: controls (rebind any key, mouse button or
+controller button: click a box, then press the new key), mouse, display, graphics, gameplay and multiplayer settings.
+Use the mouse, the keyboard (arrow keys, Enter, Tab for the next page, Escape) or a controller (d-pad, A, B, L / R).
+Changes are saved to `mhgurecomp.ini` right away; frame rate, VSync, MSAA, FXAA, field of view and the mouse apply
+at once, the ones marked "Restart to apply" at the next start. The game keeps running behind the menu.
 
 Everything is in `mhgurecomp.ini`; each setting is explained in the file itself. In short:
 
@@ -117,7 +127,12 @@ Everything is in `mhgurecomp.ini`; each setting is explained in the file itself.
 - `[Performance]`: `FPS` (30 to 240), `VSync` (On / Off; above your monitor's refresh rate, turn VSync off)
 - `[Controls]`: `FaceButtons` (Position / Label), `BackgroundInput` (On / Off: the controller keeps working while
   the game's window is in the background, such as with a wiki in front of it; default On)
-- `[Mouse]`: `MouseSensitivity` (1 = default, 0.1 to 10)
+- `[Mouse]`: `MouseSensitivity` (1 = default, 0.1 to 10), `DirectMouse` (On / Off, default On: menus follow the pointer - hover
+  selects, left click confirms, right click goes back -, the quest camera turns with the mouse itself instead of a
+  simulated right stick; towns keep their fixed camera and a left click talks to whoever is in range)
+- `[Keyboard]`: the key(s) for each Switch button and stick direction (`A = Mouse Right`, `B = Space`,
+  `MoveUp = W`...; up to two each, `Walk` = half tilt, `Camera*` = right stick keys for playing without a mouse)
+- `[Controller]`: the controller button for each Switch button (`Default` follows `FaceButtons`)
 - `[Multiplayer]`: `Port`, `Join` (addresses of hosts outside your LAN), `SyncSmallMonsters`
 - `[Monster HP]`: HP factors for 1 to 4 hunters in Hub quests, and per-quest exceptions (default: all 1, the
   original game)
