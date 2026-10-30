@@ -214,6 +214,27 @@ $(B)/data/.complete:
 	    done && touch $@ && echo "data: game files in $(B)/data"; \
 	fi
 
+# Plugins for the port (plugins/<Name>/*.c): Forge plugins, each built as a mod folder,
+# $(B)/mods/<Name>/romfs/nativeNX/plugins/<Name>.nro (dropping the folder into mods/ installs it). AArch32 ARM code,
+# softfp as Forge's (plugins/include/forge_port.h), linked flat (plugins/plugin.ld) and made an NRO
+# (tools/elf2nro.py); the port runs it in its interpreter (runtime/forge.c).
+PLUGIN_NAMES := $(patsubst plugins/%/,%,$(filter-out plugins/include/,$(wildcard plugins/*/)))
+PLUGINFLAGS  := --target=armv8a-none-eabi -marm -mfloat-abi=softfp -mfpu=fp-armv8 -O2 -fPIC -ffreestanding \
+                -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector \
+                -fvisibility=hidden -Wall -Iplugins/include
+plugins: $(foreach p,$(PLUGIN_NAMES),$(B)/mods/$(p)/romfs/nativeNX/plugins/$(p).nro)
+
+define PLUGIN_RULE
+$(O)/plugins/$(1)/%.o: plugins/$(1)/%.c $(wildcard plugins/include/*.h)
+	@mkdir -p $$(dir $$@)
+	$(CC) $(PLUGINFLAGS) -c $$< -o $$@
+$(B)/mods/$(1)/romfs/nativeNX/plugins/$(1).nro: $(patsubst plugins/$(1)/%.c,$(O)/plugins/$(1)/%.o,$(wildcard plugins/$(1)/*.c)) plugins/plugin.ld tools/elf2nro.py
+	@mkdir -p $$(dir $$@)
+	ld.lld -m armelf -shared -z norelro --hash-style=sysv -T plugins/plugin.ld -o $(O)/plugins/$(1).elf $$(filter %.o,$$^)
+	$(PY) tools/elf2nro.py $(O)/plugins/$(1).elf $$@
+endef
+$(foreach p,$(PLUGIN_NAMES),$(eval $(call PLUGIN_RULE,$(p))))
+
 gen:
 	cd tools && ../$(PY) gen.py sdk ../$(GAME)/exefs/sdk 0x02400000 ../$(GEN)/sdk --hle ../runtime/hle/hle_symbols.txt
 	cd tools && ../$(PY) gen.py main ../$(GAME)/exefs/main 0x00200000 ../$(GEN)/main
@@ -228,4 +249,4 @@ runtime-objs: $(RT_OBJ)
 clean:  # (keeps $(B)/data, and the settings, caches and saves wherever the game ran)
 	rm -rf $(O) $(B)/*.dll $(B)/*.so $(EXE) $(B)/vkprobe.exe
 
-.PHONY: all gen test-lift runtime-objs clean bundle data licenses FORCE
+.PHONY: all gen test-lift runtime-objs clean bundle data licenses plugins FORCE

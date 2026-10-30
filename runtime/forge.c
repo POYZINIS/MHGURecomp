@@ -571,6 +571,11 @@ HLE_FUNC("forge_graphics_isInitialized", f_gfx_init) { RET(overlay_enabled()); }
 HLE_FUNC("forge_graphics_isMenuOpen", f_gfx_menu) { RET(overlay_menu_open()); }
 HLE_FUNC("forge_graphics_isMenuVisible", f_gfx_menu_visible) { RET(overlay_menu_open()); }
 
+// ------------------------------------------------------------------ the port's own calls for plugins (not Forge's)
+// mhgu_*: what a plugin made for the port (plugins/, runtime/forge_port.h's declarations) can ask of it besides
+// Forge's API. A plugin that may also run on a console declares them weak and checks them for NULL.
+HLE_FUNC("mhgu_time_ns", f_time_ns) { RET64(plat_now_ns()); }  // a steady clock: nanoseconds
+
 // ------------------------------------------------------------------ plugins
 void forge_plugins_imgui(Cpu *c, int which, uint32_t a0, uint32_t a1, uint32_t a2) {
     for (int i = 0; i < nplugins; i++)
